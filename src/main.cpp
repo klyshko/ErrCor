@@ -9,44 +9,67 @@
 #include <stdio.h>
 #include <vector>
 
-#define MT_fragment_len 5.0
+#define MT_FRAGMENT_LEN 5.0
 
-struct coord{
-	
+struct {
+	float x;
+	float y;
+	float z;
+} Coord;
+
+Coord normalize(Coord r){
+	float len = sqrt(r.x*r.x + r.y*r.y + r.z*r.z);	
+	r.x /= len;
+	r.y /= len;
+	r.z /= len;  
+	return r;
 }
-
 
 class MT{
 	public:
-		float x, y, z;
+		Coord dir;
 		int phase;
+		float length;
 
 		
-		MT(float x, float y, float z) : x(x), y(y), z(z){
+		MT(float x, float y, float z) : dir.x(x), dir.y(y), dir.z(z){
 			phase = 1.0;
+			length = 0.0;
+		}
+		
+		void changeLength(){
+			if (phase = 1.0){
+				length += MT_FRAGMENT_LEN;
+`			} else {
+				length -= MT_FRAGMENT_LEN;
+			}	
 		}
 
+		Coord getTipCoord(){
+			Coord r;
+			r.x = self.dir.x * length;
+			r.y = self.dir.y * length;
+			r.z = self.dir.z * length;
+			return r;
+		}
 
 };
 
 class Pole{
 	public:
-		float x, y, z, r;
-		vector <MT> tubes;
+		float radius;
+		Coord coord;
+		vector <MT*> tubes;
 		int num_tubes; 
 		
 		Pole(){
-			x = 0.0;
-			y = 0.0;
-			z = 0.0;
-			r = 1.0;
-			num_tubes = 0;
+			coord.x = 0.0;
+			coord.y = 0.0;
+			coord.z = 0.0;
+			radius = 1.0;
+			num_tubes = 1;
 		}
 };
-
-
-
-
 
 
 int main(int argc, char *argv[]){
