@@ -11,6 +11,8 @@
 #include "md.h"
 #include "ran2.h"
 
+using namespace std;
+
 
 #define TOTAL_STEPS 100000
 #define DCD_STRIDE	100 
@@ -83,16 +85,14 @@ void membraneMechanics(float3* r, float3* f);
 void computeHarmonic(float3* r, float3* f);
 void computeAngles(float3* r, float3* f);
 void integrateCPU(float3* r, float3* f, float dt, int N);
-void generateKinetochore();
+vector<float3> generateKinetochore();
 
 //////////////////////////////////////////////////////////////////////////////////////
 
 int main(){
 
-	generateKinetochore()
-
-
-	/*
+	vector <float3> kinetochore = generateKinetochore();
+	
 	mds.N = MT_NUM*MAX_MT_LENGTH;
 	mds.r = (float3*)calloc(mds.N, sizeof(float3));
 	mds.f = (float3*)calloc(mds.N, sizeof(float3));
@@ -179,11 +179,13 @@ int main(){
 		}
 		printf("%ld\n", step);
 	}
-	*/
+	
+
+	return 0;
 
 }
 
-void generateKinetochore(){
+vector<float3> generateKinetochore(){
 	float xc = 2 * ran2(&rseed) * ELLIPSE_A - ELLIPSE_A;
 	float yc = 2 * ran2(&rseed) * ELLIPSE_B - ELLIPSE_B;
 	float zc = 2 * ran2(&rseed) * ELLIPSE_C - ELLIPSE_C;
@@ -192,39 +194,61 @@ void generateKinetochore(){
 	dir.x = 2 * ran2(&rseed) - 1.0;
 	dir.y = 2 * ran2(&rseed) - 1.0;
 	dir.z = 2 * ran2(&rseed) - 1.0;
-*/
+
 	int nh = KIN_HEIGHT / (2 * MT_RADIUS);
 	int nr = KIN_RADIUS / (2 * MT_RADIUS);
-
-	float xinit = xc;
-	float yinit = yc + KIN_DIST_0 / 2;
-	float zinit = zc - KIN_HEIGHT / 2;
-
 	int n = 0;
+
+*/
+
+	float xinit_neg = xc - KIN_DIST_0 / 2;
+	float xinit_pos = xc + KIN_DIST_0 / 2;
+	float yinit = yc;// + KIN_DIST_0 / 2;
+	float zinit = zc;// - KIN_HEIGHT / 2;
+
+	printf("%f %f %f\n", xc, yc, zc);
+
+	
 	vector <float3> r;
-	for (float z = zinit; z < zinit + KIN_HEIGHT; z += 2 * MT_RADIUS ){
-		float3 coord;
-		coord.z = z; 
-		for (float x = xc - KIN_RADIUS; x < xc + KIN_RADIUS; x += 2 * MT_RADIUS){
-			for (float y = yc - KIN_RADIUS; x < yc + KIN_RADIUS; y += 2 * MT_RADIUS){
-				if (x*x + y*y < KIN_RADIUS * KIN_RADIUS){
+	for (float z = zinit - KIN_HEIGHT / 2; z < zinit + KIN_HEIGHT / 2; z += 2 * MT_RADIUS ){
+
+		for (float x = xinit_neg - KIN_RADIUS; x <= xinit_neg; x += 2 * MT_RADIUS){
+			for (float y = yc - KIN_RADIUS; y < yc + KIN_RADIUS; y += 2 * MT_RADIUS){
+				if ((x - xinit_neg) * (x - xinit_neg) + (y - yc) * (y - yc) < KIN_RADIUS * KIN_RADIUS){
+					float3 coord;
+					coord.z = z; 
 					coord.x = x;
 					coord.y = y;
 					r.push_back(coord);
+					printf("%f %f %f\n", x,y,z);
+				}
+			}
+		}
+
+		for (float x =  xinit_pos; x <= xinit_pos + KIN_RADIUS; x += 2 * MT_RADIUS){
+			for (float y = yc - KIN_RADIUS; y < yc + KIN_RADIUS; y += 2 * MT_RADIUS){
+				if ((x - xinit_pos) * (x - xinit_pos) + (y - yc) * (y - yc) < KIN_RADIUS * KIN_RADIUS){
+					float3 coord;
+					coord.z = z; 
+					coord.x = x;
+					coord.y = y;
+					r.push_back(coord);
+					printf("%f %f %f\n", x,y,z);
 				}
 			}
 		}
 	}
+
+/*
 	float3 *rarray = (float3*)malloc(r.size() * sizeof(float3));
 	for (int i = 0; i < r.size(); i++){
-		printf("lol\t%f\t%f\t%f\n", r[i].x, r[i].y, r[i].z);
+		//printf("lol\t%f\t%f\t%f\n", r[i].x, r[i].y, r[i].z);
 		rarray[i] = r[i];
 	}
 
-	writeXYZ("cylinder.xyz", rarray, r.size(), "w");
-
-
-
+	//writeXYZ("cylinder.xyz", rarray, r.size(), "w");
+*/
+	return r;
 
 }
 
