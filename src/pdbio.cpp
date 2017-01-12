@@ -10,7 +10,7 @@
  *      Author: zhmurov
  */
 
-#define BUF_SIZE 80
+#define buf_size 80
 //#define DEBUGPDBIO
 
 /*
@@ -36,14 +36,14 @@ void parseSSBondLine(PDB* pdbData, char* line, int currentSSBond);
 void readPDB(const char* filename, PDB* pdbData){
 	printf("Reading %s.\n", filename);
 	int ss_count = 0, atoms_count = 0;
-	char buffer[BUF_SIZE];
+	char buffer[buf_size];
 	FILE* file = fopen(filename, "r");
 	if ( file != NULL ){
-		while(fgets(buffer, BUF_SIZE, file) != NULL){
+		while(fgets(buffer, buf_size, file) != NULL){
 			if(strncmp(buffer,"SSBOND",6) == 0){
 				ss_count++;
 			}
-			if(strncmp(buffer, "ATOM", 4) == 0){
+			if(strncmp(buffer, "ATOM", 4) == 0 || strncmp(buffer, "HETATM", 6) == 0){
 				atoms_count++;
 			}
 		}
@@ -59,76 +59,19 @@ void readPDB(const char* filename, PDB* pdbData){
 
 		rewind(file);
 
-		while(fgets(buffer, BUF_SIZE, file) != NULL){
+		while(fgets(buffer, buf_size, file) != NULL){
 			char* pch = strtok(buffer, " ");
-			if(strcmp(pch, "SSBOND") == 0){
+			if(strncmp(buffer,"SSBOND",6) == 0){
 				parseSSBondLine(pdbData, buffer, current_ss);
 				current_ss++;
 			}
-			if(strcmp(pch, "ATOM") == 0){
+			if(strncmp(buffer, "ATOM", 4) == 0 || strncmp(buffer, "HETATM", 6) == 0){
 				parseAtomLine(pdbData, buffer, current_atom);
 				current_atom ++;
 			}
 
 		}
 	printf("Done reading '%s'.\n", filename);
-	fclose(file);
-	} else {
-		perror(filename);
-		exit(0);
-	}
-}
-
-/*
- * Reads ONLY coordinates from pdb file.
- *
- * Parameters:
- * 		filename: name of a pdb file to parse
- * 		x, y, z: pointers to arrays to save data into
- * 		count: number of atoms for validation
- */
-void readCoordinatesFromPDB(const char* filename, double* x, double* y, double* z, int count){
-	int atomsCount = 0;
-	char buffer[BUF_SIZE];
-	FILE* file = fopen(filename, "r");
-	if(file != NULL){
-		while(fgets(buffer, BUF_SIZE, file) != NULL){
-			if(strncmp(buffer, "ATOM", 4) == 0){
-				atomsCount++;
-			}
-		}
-		if(atomsCount != count){
-			printf("ERROR: Number of atoms in pdb file is wrong: %s\n", filename);
-			exit(0);
-		}
-
-		int currentAtom = 0;
-
-		rewind(file);
-
-		while(fgets(buffer, BUF_SIZE, file) != NULL){
-			char* pch = strtok(buffer, " ");
-			if(strcmp(pch, "ATOM") == 0){
-
-				char xstring[9], ystring[9], zstring[9];
-
-				strncpy(xstring, &buffer[30], 8);
-				xstring[8] = '\0';
-
-				strncpy(ystring, &buffer[38], 8);
-				ystring[8] = '\0';
-
-				strncpy(zstring, &buffer[46], 8);
-				zstring[8] = '\0';
-
-				x[currentAtom] = atof(xstring);
-				y[currentAtom] = atof(ystring);
-				z[currentAtom] = atof(zstring);
-
-				currentAtom ++;
-			}
-
-		}
 	fclose(file);
 	} else {
 		perror(filename);
@@ -176,6 +119,7 @@ void parseAtomLine(PDB* pdbData, char* line, int currentAtom){
 	char x[9], y[9], z[9];
 	char occupancy[7];
 	char beta[7];
+	char segment[5];
 	strncpy(id, &line[6], 5);
 	id[5] = '\0';
 	strncpy(atomName, &line[12], 4);
@@ -196,6 +140,14 @@ void parseAtomLine(PDB* pdbData, char* line, int currentAtom){
 	occupancy[6] = '\0';
 	strncpy(beta, &line[60], 6);
 	beta[6] = '\0';
+	strncpy(segment, &line[72], 4);
+	segment[4] = '\0';
+	int i;
+	for(i = 0; i < 5; i++){
+		if(segment[i] == '\n' || segment [i] == '\r'){
+			segment[i] = ' ';
+		}
+	}
 	strcpy(pdbData->atoms[currentAtom].name, strtok(atomName, " "));
 	pdbData->atoms[currentAtom].altLoc = altLoc;
 	pdbData->atoms[currentAtom].name[4] = 0;
@@ -209,6 +161,7 @@ void parseAtomLine(PDB* pdbData, char* line, int currentAtom){
 	pdbData->atoms[currentAtom].z = atof(z);
 	pdbData->atoms[currentAtom].occupancy = atof(occupancy);
 	pdbData->atoms[currentAtom].beta = atof(beta);
+	strcpy(pdbData->atoms[currentAtom].segment, segment);
 #ifdef DEBUGPDBIO
 	printAtom(pdbData->atoms[currentAtom]);
 #endif
@@ -269,14 +222,8 @@ void parseSSBondLine(PDB* pdbData, char* line, int currentSSBond){
  * 		pdbData: pointer of an object to get data from
  */
 void writePDB(const char* filename, PDB* pdbData){
-	writePDB(filename, pdbData, 0);
-}
-
-
-void writePDB(const char* filename, PDB* pdbData, int printConnections){
-	printf("Saving PDB '%s'...\n", filename);
 	FILE* file = fopen(filename, "w");
-	int i, j;
+	int i;
 	for(i = 0; i < pdbData->ssCount; i++){
 		fprintf(file, "SSBOND %3d CYS %c %4d    CYS %c %4d\n",
 								i + 1,
@@ -285,92 +232,23 @@ void writePDB(const char* filename, PDB* pdbData, int printConnections){
 								pdbData->ssbonds[i].chain2,
 								pdbData->ssbonds[i].resid2);
 	}
-	if(pdbData->atomCount < 100000){
-		for(i = 0; i < pdbData->atomCount; i++){
-			fprintf(file, "ATOM  %5d %-4s%c%3s %c%4d    %8.3f%8.3f%8.3f%6.2f%6.2f\n",
-									i + 1,
-									pdbData->atoms[i].name,
-									pdbData->atoms[i].altLoc,
-									pdbData->atoms[i].resName,
-									pdbData->atoms[i].chain,
-									pdbData->atoms[i].resid,
-									pdbData->atoms[i].x,
-									pdbData->atoms[i].y,
-									pdbData->atoms[i].z,
-									pdbData->atoms[i].occupancy,
-									pdbData->atoms[i].beta);
-		}
-	} else {
-		for(i = 0; i < pdbData->atomCount; i++){
-			fprintf(file, "ATOM  %5x %-4s%c%3s %c%4d    %8.3f%8.3f%8.3f%6.2f%6.2f\n",
-									i + 1,
-									pdbData->atoms[i].name,
-									pdbData->atoms[i].altLoc,
-									pdbData->atoms[i].resName,
-									pdbData->atoms[i].chain,
-									pdbData->atoms[i].resid,
-									pdbData->atoms[i].x,
-									pdbData->atoms[i].y,
-									pdbData->atoms[i].z,
-									pdbData->atoms[i].occupancy,
-									pdbData->atoms[i].beta);
-		}
-	}
-
-	if(printConnections){
-		for(i = 0; i < pdbData->atomCount; i++){
-			fprintf(file, "CONECT%5d", i+1);
-			for(j = 0; j < pdbData->connections.connectCount[i]; j++){
-				fprintf(file, "%5d", pdbData->connections.connectMap[j*pdbData->atomCount + i]+1);
-			}
-			fprintf(file, "\n");
-		}
+	for(i = 0; i < pdbData->atomCount; i++){
+		fprintf(file, "ATOM  %5d %-4s%c%3s %c%4d    %8.3f%8.3f%8.3f%6.2f%6.2f      %s       \n",
+								i + 1,
+								pdbData->atoms[i].name,
+								pdbData->atoms[i].altLoc,
+								pdbData->atoms[i].resName,
+								pdbData->atoms[i].chain,
+								pdbData->atoms[i].resid,
+								pdbData->atoms[i].x,
+								pdbData->atoms[i].y,
+								pdbData->atoms[i].z,
+								pdbData->atoms[i].occupancy,
+								pdbData->atoms[i].beta,
+								pdbData->atoms[i].segment);
 	}
 	fprintf(file, "END");
 	fclose(file);
-	printf("Done saving PDB.\n");
-}
-
-void appendPDB(const char* filename, PDB* pdbData){
-	printf("Appending PDB '%s'...\n", filename);
-	FILE* file = fopen(filename, "a");
-	int i, j;
-	
-	if(pdbData->atomCount < 100000){
-		for(i = 0; i < pdbData->atomCount; i++){
-			fprintf(file, "ATOM  %5d %-4s%c%3s %c%4d    %8.3f%8.3f%8.3f%6.2f%6.2f\n",
-									i + 1,
-									pdbData->atoms[i].name,
-									pdbData->atoms[i].altLoc,
-									pdbData->atoms[i].resName,
-									pdbData->atoms[i].chain,
-									pdbData->atoms[i].resid,
-									pdbData->atoms[i].x,
-									pdbData->atoms[i].y,
-									pdbData->atoms[i].z,
-									pdbData->atoms[i].occupancy,
-									pdbData->atoms[i].beta);
-		}
-	} else {
-		for(i = 0; i < pdbData->atomCount; i++){
-			fprintf(file, "ATOM  %5x %-4s%c%3s %c%4d    %8.3f%8.3f%8.3f%6.2f%6.2f\n",
-									i + 1,
-									pdbData->atoms[i].name,
-									pdbData->atoms[i].altLoc,
-									pdbData->atoms[i].resName,
-									pdbData->atoms[i].chain,
-									pdbData->atoms[i].resid,
-									pdbData->atoms[i].x,
-									pdbData->atoms[i].y,
-									pdbData->atoms[i].z,
-									pdbData->atoms[i].occupancy,
-									pdbData->atoms[i].beta);
-		}
-	}
-
-	fprintf(file, "END\n");
-	fclose(file);
-	printf("Done appending PDB.\n");
 }
 
 /*
@@ -379,7 +257,7 @@ void appendPDB(const char* filename, PDB* pdbData){
  * 		atomData: PDBAtom object to print
  */
 void printAtom(PDBAtom atomData){
-	printf("ATOM  %5d %-4s%c%3s %c%4d    %8.3f%8.3f%8.3f%6.2f%6.2f\n",
+	printf("ATOM  %5d %-4s%c%3s %c%4d    %8.3f%8.3f%8.3f%6.2f%6.2f      PROT\n",
 			atomData.id,
 			atomData.name,
 			atomData.altLoc,

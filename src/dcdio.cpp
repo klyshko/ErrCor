@@ -38,6 +38,12 @@ void createDCD(DCD* dcd, int atomCount, int frameCount, int firstFrame, float ti
 	dcd->frame.Z = (float*)calloc(atomCount, sizeof(float));
 }
 
+void destroyDCD(DCD* dcd){
+	free(dcd->frame.X);
+	free(dcd->frame.Y);
+	free(dcd->frame.Z);
+}
+
 /*
  * Extend the string to be 80 bytes length (for remarks in header)
  * Taken from dcdlib.C (NAMD source)
@@ -48,11 +54,11 @@ void pad(char *s, int len);
  * Open DCD file to write data into.
  * The FILE* pointer is returned and must be used for further calls
  */
-void dcdOpenWrite(DCD* dcd, char *dcd_filename){
+void dcdOpenWrite(DCD* dcd, const char *dcd_filename){
 	dcd->file = fopen(dcd_filename, "w");
 }
 
-void dcdOpenAppend(DCD* dcd, char *dcd_filename){
+void dcdOpenAppend(DCD* dcd, const char *dcd_filename){
 	dcd->file = fopen(dcd_filename, "a");
 }
 
@@ -99,7 +105,7 @@ void dcdWriteHeader( DCD dcd){
 	FILE* dcd_file = dcd.file;
 	int iout;
 	float fout;
-	char cout[5];
+	char cout[4];
 	iout = 84;
 	fwrite(&iout, 4, 1, dcd_file);
 	sprintf(cout, "CORD");
@@ -131,12 +137,10 @@ void dcdWriteHeader( DCD dcd){
 	iout = 2;
 	fwrite(&iout, 4, 1, dcd_file);
 	char title[81];
-	strncpy(title,dcd.header.remark1,sizeof(title));
-//	sprintf(title, "%s", dcd.header.remark1);
+	sprintf(title, "%s", dcd.header.remark1);
 	pad(title, 80);
-	fwrite(title, 80, 1, dcd_file);
-	strncpy(title,dcd.header.remark2,sizeof(title));
-//	sprintf(title, "%s", dcd.header.remark2);
+	fwrite(&title, 80, 1, dcd_file);
+	sprintf(title, "%s", dcd.header.remark2);
 	pad(title, 80);
 	fwrite(&title, 80, 1, dcd_file);
 	iout = 164;
@@ -210,7 +214,7 @@ void dcdClose(DCD dcd){
 }
 
 
-void dcdOpenRead(DCD* dcd, char *dcd_filename){
+void dcdOpenRead(DCD* dcd, const char *dcd_filename){
 	dcd->file = fopen(dcd_filename, "r");
 }
 
@@ -254,9 +258,9 @@ void dcdReadHeader(DCD* dcd){
 	//2;
 	fread(&iin, 4, 1, dcd_file);
 	fread(&dcd->header.remark1, 80, 1, dcd_file);
-	//printf("Title1: %s\n", title);
+	//printf("Title1: %s\n", &dcd->header.remark1);
 	fread(&dcd->header.remark2, 80, 1, dcd_file);
-	//printf("Title2: %s\n", title);
+	//printf("Title2: %s\n", &dcd->header.remark2);
 	//164
 	fread(&iin, 4, 1, dcd_file);
 	//4
@@ -271,8 +275,8 @@ int dcdReadFrame(DCD* dcd){
 	FILE* dcd_file = dcd->file;
 	int iin;
 	double din;
-	fread(&iin, 4, 1, dcd_file);
 	if(dcd->hasUC){
+		fread(&iin, 4, 1, dcd_file);
 		fread(&dcd->uc.a, 4, 1, dcd_file);
 		fread(&dcd->uc.alpha, 4, 1, dcd_file);
 		fread(&dcd->uc.b, 4, 1, dcd_file);
@@ -284,8 +288,8 @@ int dcdReadFrame(DCD* dcd){
 			printf("%d: %f\n", i+1, din);
 		}*/
 		fread(&iin, 4, 1, dcd_file);
-		fread(&iin, 4, 1, dcd_file);
 	}
+	fread(&iin, 4, 1, dcd_file);
 	//printf("%d\n", iin);
 	fread(dcd->frame.X, 4*dcd->header.N, 1, dcd_file);
 	fread(&iin, 4, 1, dcd_file);
@@ -312,11 +316,11 @@ void pad(char *s, int len){
 	int i;
 	curlen = strlen(s);
 	if (curlen > len){
-		s[len-1] = '\0';
+		s[len] = '\0';
 		return;
 	}
 	for (i = curlen; i < len; i++){
-		s[i] = '\0';
+		s[i] = ' ';
 	}
 	s[i] = '\0';
 }

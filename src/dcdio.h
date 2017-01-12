@@ -36,10 +36,11 @@ typedef struct {
 } DCD;
 
 void createDCD(DCD* dcd, int atomCount, int frameCount, int firstFrame, float timestep, int dcdFreq, int hazUC, int UCX, int UCY, int UCZ);
+void destroyDCD(DCD* dcd);
 
-void dcdOpenWrite(DCD* dcd, char *dcd_filename);
-void dcdOpenAppend(DCD* dcd, char *dcd_filename);
-void dcdOpenRead(DCD* dcd, char *dcd_filename);
+void dcdOpenWrite(DCD* dcd, const char *dcd_filename);
+void dcdOpenAppend(DCD* dcd, const char *dcd_filename);
+void dcdOpenRead(DCD* dcd, const char *dcd_filename);
 
 void dcdWriteHeader(DCD dcd);
 void dcdWriteFrame(DCD dcd);

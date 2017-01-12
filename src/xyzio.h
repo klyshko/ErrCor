@@ -24,3 +24,5 @@ typedef struct {
 void readXYZ(const char* filename, XYZ* xyzData);
 void readCoordinatesFromXYZ(const char* filename, double* x, double* y, double* z, int count);
 void writeXYZ(const char* filename, XYZ* xyzData);
+
+void appendXYZ(const char* filename, XYZ* xyzData);

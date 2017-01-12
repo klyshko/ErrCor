@@ -5,8 +5,8 @@
  *      Author: zhmurov
  */
 
-#pragma once
-
+#ifndef PDBIO_H_
+#define PDBIO_H_
 #include <stdio.h>
 
 /*
@@ -19,6 +19,8 @@ typedef struct {
   char   name[5], chain, resName[4], altLoc;
   int    resid;
   double x, y, z;
+
+  char segment[5];
 
   double occupancy;
   double beta;
@@ -36,26 +38,19 @@ typedef struct {
 } PDBSSBond;
 
 typedef struct {
-	int* connectCount;
-	int* connectMap;
-} PDBConnect;
-
-typedef struct {
 	int atomCount;
 	PDBAtom* atoms;
 	int ssCount;
 	PDBSSBond* ssbonds;
-	PDBConnect connections;
 } PDB;
-
 
 /*
  * Public methods
  */
 void readPDB(const char* filename, PDB* pdbData);
-void readCoordinatesFromPDB(const char* filename, double* x, double* y, double* z, int count);
 void writePDB(const char* filename, PDB* pdbData);
-void writePDB(const char* filename, PDB* pdbData, int printConnections);
-void appendPDB(const char* filename, PDB* pdbData);
 void printAtom(PDBAtom atomData);
 void printAtomToFile(FILE* file, PDBAtom atomData);
+
+
+#endif /* PDBIO_H_ */
