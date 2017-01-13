@@ -63,9 +63,16 @@ typedef struct{
 	int state;
 } MT;
 
+typedef struct{
+	float3* r;
+	int n;
+	int* state;
+	float3 center;
+} KT;
+
 //////////////////////////////////////////////////////////////////////////////////////
 
-MT* mt;
+MT *mt1, *mt2;
 MDSystem mds;
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -93,38 +100,95 @@ int main(){
 
 	vector <float3> kinetochore = generateKinetochore();
 	
-	mds.N = MT_NUM*MAX_MT_LENGTH;
+	mds.N = 2 * MT_NUM*MAX_MT_LENGTH + kinetochore.size() - 1;
 	mds.r = (float3*)calloc(mds.N, sizeof(float3));
 	mds.f = (float3*)calloc(mds.N, sizeof(float3));
-	mt = (MT*)calloc(MT_NUM, sizeof(MT));
-
+	mt1 = (MT*)calloc(MT_NUM, sizeof(MT));
+	mt2 = (MT*)calloc(MT_NUM, sizeof(MT));
 	int m, i;
 	for(m = 0; m < MT_NUM; m++){
-		mt[m].r = &mds.r[MAX_MT_LENGTH*m];
-		mt[m].n = 2;
-		mt[m].state = MT_STATE_POL;
-			
+		mt1[m].r = &mds.r[MAX_MT_LENGTH*m];
+		mt1[m].n = 2;
+		mt1[m].state = MT_STATE_POL;
+
+		mt2[m].r = &mds.r[MT_NUM*MAX_MT_LENGTH + MAX_MT_LENGTH*m];
+		mt2[m].n = 2;
+		mt2[m].state = MT_STATE_POL;		
 	} 
+
+	KT kt;
+	kt.n = kinetochore.size() - 1;
+	kt.r = (float3*)malloc(kt.n * sizeof(float3));
+	kt.state = (int*)malloc(kt.n * sizeof(int));
+	kt.center.x = kinetochore[kinetochore.size()-1].x;
+	kt.center.y = kinetochore[kinetochore.size()-1].y;
+	kt.center.z = kinetochore[kinetochore.size()-1].z;
+
+	for (i = 0; i < kinetochore.size() - 1; i++){
+		mds.r[2 * MT_NUM*MAX_MT_LENGTH + i].x = kinetochore[i].x;
+		mds.r[2 * MT_NUM*MAX_MT_LENGTH + i].y = kinetochore[i].y;
+		mds.r[2 * MT_NUM*MAX_MT_LENGTH + i].z = kinetochore[i].z;
+
+		if (kt.r[i].x < kt.center.x){
+			kt.state[i] = 0; //left part
+		} else {
+			kt.state[i] = 1; //right part
+		}
+	}
+	kt.r = &mds.r[2 * MT_NUM*MAX_MT_LENGTH];
+
 	
-	float3 r0;
-	r0.x = 0; 
+	float3 r0, r1;
+	r0.x = -500; 
 	r0.y = 0; 
 	r0.z = 0;
+
+	r1.x = 500;
+	r1.y = 0;
+	r1.z = 0;
+
+
+
 	for(m = 0; m < MT_NUM; m++){
 		float theta = M_PI*ran2(&rseed);
 		float phi = 2.0*M_PI*ran2(&rseed);
-		mt[m].r[0].x = r0.x + POLE_RADIUS*sin(theta)*cos(phi);
-		mt[m].r[0].y = r0.y + POLE_RADIUS*sin(theta)*sin(phi);
-		mt[m].r[0].z = r0.z + POLE_RADIUS*cos(theta);
-		mt[m].r[1].x = r0.x + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*cos(phi);
-		mt[m].r[1].y = r0.y + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*sin(phi);
-		mt[m].r[1].z = r0.z + (POLE_RADIUS + 2.0*MT_RADIUS)*cos(theta);
+		mt1[m].r[0].x = r0.x + POLE_RADIUS*sin(theta)*cos(phi);
+		mt1[m].r[0].y = r0.y + POLE_RADIUS*sin(theta)*sin(phi);
+		mt1[m].r[0].z = r0.z + POLE_RADIUS*cos(theta);
+		mt1[m].r[1].x = r0.x + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*cos(phi);
+		mt1[m].r[1].y = r0.y + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*sin(phi);
+		mt1[m].r[1].z = r0.z + (POLE_RADIUS + 2.0*MT_RADIUS)*cos(theta);
 		float mindist = 100.0;
 		int m1;
 		for(m1 = 0; m1 < m; m1++){
-			float dx = mt[m1].r[0].x - mt[m].r[0].x;
-			float dy = mt[m1].r[0].y - mt[m].r[0].y;
-			float dz = mt[m1].r[0].z - mt[m].r[0].z;
+			float dx = mt1[m1].r[0].x - mt[m].r[0].x;
+			float dy = mt1[m1].r[0].y - mt[m].r[0].y;
+			float dz = mt1[m1].r[0].z - mt[m].r[0].z;
+			float dr = sqrt(dx*dx + dy*dy + dz*dz);
+			if(dr < mindist){
+				mindist = dr;
+			}
+		}
+		if(mindist < MT_RADIUS*2.0){
+			m--;
+		}
+	}
+
+	for(m = 0; m < MT_NUM; m++){
+		float theta = M_PI*ran2(&rseed);
+		float phi = 2.0*M_PI*ran2(&rseed);
+		mt2[m].r[0].x = r1.x + POLE_RADIUS*sin(theta)*cos(phi);
+		mt2[m].r[0].y = r1.y + POLE_RADIUS*sin(theta)*sin(phi);
+		mt2[m].r[0].z = r1.z + POLE_RADIUS*cos(theta);
+		mt2[m].r[1].x = r1.x + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*cos(phi);
+		mt2[m].r[1].y = r1.y + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*sin(phi);
+		mt2[m].r[1].z = r1.z + (POLE_RADIUS + 2.0*MT_RADIUS)*cos(theta);
+		float mindist = 100.0;
+		int m1;
+		for(m1 = 0; m1 < m; m1++){
+			float dx = mt2[m1].r[0].x - mt[m].r[0].x;
+			float dy = mt2[m1].r[0].y - mt[m].r[0].y;
+			float dz = mt2[m1].r[0].z - mt[m].r[0].z;
 			float dr = sqrt(dx*dx + dy*dy + dz*dz);
 			if(dr < mindist){
 				mindist = dr;
@@ -200,6 +264,10 @@ vector<float3> generateKinetochore(){
 	int n = 0;
 
 */
+	float3 center;
+	center.x = xc;
+	center.y = yc;
+	center.z = zc;
 
 	float xinit_neg = xc - KIN_DIST_0 / 2;
 	float xinit_pos = xc + KIN_DIST_0 / 2;
@@ -238,6 +306,7 @@ vector<float3> generateKinetochore(){
 			}
 		}
 	}
+	r.push_back(center);
 
 /*
 	float3 *rarray = (float3*)malloc(r.size() * sizeof(float3));
