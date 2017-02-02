@@ -26,7 +26,7 @@ using namespace std;
 #define POLE_COUNT		1
 
 #define MT_POL_RATE				0.007//7.e-8 //0.007	for 10 miliseconds	
-#define MT_DEPOL_RATE			0.//0.17//1.7e-6//0.17		
+#define MT_DEPOL_RATE			0.17//0.17//1.7e-6//0.17		
 #define MT_CATASTROPHE_FREQ 	45e-5//4.5e-10//45e-5	
 #define MT_RESCUE_FREQ			0.0015//1.5e-8//0.0015
 
@@ -52,7 +52,7 @@ float dt = 100;	//ns
 
 //////////////////////////////////////////////////////////////////////////////////////
 
-int rseed = -123213;
+int rseed = 123;
 
 //////////////////////////////////////////////////////////////////////////////////////
 
@@ -70,10 +70,33 @@ typedef struct{
 	float3 center;
 } KT;
 
+
+
 //////////////////////////////////////////////////////////////////////////////////////
 
 MT* pol[2];
 MDSystem mds;
+KT kt;
+
+int KinIndex1;
+int KinIndex2;
+
+float3* pol_center;
+
+int* LJCount;
+int maxLJPerMonomer;
+int* LJ;
+
+int* RepulsiveCount;
+int* Repulsive;
+int maxRepulsivePerMonomer;
+
+int* harmonicKinCount;
+int* harmonicKin;
+float* harmonicKinRadii;
+int maxHarmonicKinPerMonomer = 30;
+
+
 
 //////////////////////////////////////////////////////////////////////////////////////
 
@@ -89,18 +112,24 @@ int computeGamma(float r);
 void kineticStep();
 void membraneKinetics();
 void membraneMechanics(float3* r, float3* f);
+void membrane(float3* r, float3* f);
 void computeHarmonic(float3* r, float3* f);
 void computeAngles(float3* r, float3* f);
 void integrateCPU(float3* r, float3* f, float dt, int N);
-vector<float3> generateKinetochore();
+vector<float3> generateKinetochoreHollow();
+vector<float3> generateKinetochoreSolid();
+float myDistance(float3 ri, float3 rj);
+float length(float3 r);
+float scalar(float3 ri, float3 rj);
+void print3(float3 r);
 
 //////////////////////////////////////////////////////////////////////////////////////
 
 int main(){
 
-	vector <float3> kinetochore = generateKinetochore();
+	vector <float3> kinetochore = generateKinetochoreHollow(); // kinetochore initializing
 	
-	mds.N = 2 * MT_NUM*MAX_MT_LENGTH + kinetochore.size() - 1;
+	mds.N = 2 * MT_NUM*MAX_MT_LENGTH + kinetochore.size() - 1 + (2); //2 MTs + kinetochores + 2 poles coordinates
 	mds.r = (float3*)calloc(mds.N, sizeof(float3));
 	mds.f = (float3*)calloc(mds.N, sizeof(float3));
 	pol[0] = (MT*)calloc(MT_NUM, sizeof(MT));
@@ -115,36 +144,114 @@ int main(){
 		}	
 	} 
 
-	KT kt;
+/// Kinetochore data is being copied to mds 
+
 	kt.n = kinetochore.size() - 1;
 	kt.r = (float3*)malloc(kt.n * sizeof(float3));
 	kt.state = (int*)malloc(kt.n * sizeof(int));
+
+	harmonicKinCount = (int*)calloc(kt.n, sizeof(int));
+	harmonicKin = (int*)malloc(kt.n * maxHarmonicKinPerMonomer * sizeof(int));
+	harmonicKinRadii = (float*)malloc(kt.n * maxHarmonicKinPerMonomer * sizeof(float));
+
 	kt.center.x = kinetochore[kinetochore.size()-1].x;
 	kt.center.y = kinetochore[kinetochore.size()-1].y;
 	kt.center.z = kinetochore[kinetochore.size()-1].z;
 
 	for (i = 0; i < kinetochore.size() - 1; i++){
+		/*
 		mds.r[2 * MT_NUM*MAX_MT_LENGTH + i].x = kinetochore[i].x;
 		mds.r[2 * MT_NUM*MAX_MT_LENGTH + i].y = kinetochore[i].y;
 		mds.r[2 * MT_NUM*MAX_MT_LENGTH + i].z = kinetochore[i].z;
+		*/
+		mds.r[2 * MT_NUM*MAX_MT_LENGTH + i] = kinetochore[i];
 
-		if (kt.r[i].x < kt.center.x){
+		if (kinetochore[i].x < kt.center.x){
+			
 			kt.state[i] = 0; //left part
+			
 		} else {
-			kt.state[i] = 1; //right part
+			kt.state[i] = 1;
+			 //right part
 		}
+
 	}
+
 	kt.r = &mds.r[2 * MT_NUM*MAX_MT_LENGTH];
 
-	
-	float3 r[2];
-	r[0].x = -3000; 
-	r[0].y = 0; 
-	r[0].z = 0;
 
-	r[1].x = 3000;
-	r[1].y = 0;
-	r[1].z = 0;
+	for (i = 0; i < kt.n; i++){
+		for (j = 0; j < kt.n; j++){
+			if (i != j){
+				if(myDistance(kt.r[i], kt.r[j]) <= 4 * MT_RADIUS){
+					harmonicKinCount[i]++;
+					harmonicKin[maxHarmonicKinPerMonomer * i + harmonicKinCount[i] - 1] = j;
+					harmonicKinRadii[maxHarmonicKinPerMonomer * i + harmonicKinCount[i] - 1] = myDistance(kt.r[i], kt.r[j]);
+				}
+				
+			}
+
+		}
+	}
+
+	// harmonic pairs for kinetochore structure support
+	int counter[2] = {0,0};
+	for(i = 0; ; i++){
+		int ind = (int)(ran2(&rseed) * kt.n);
+		if (kt.state[ind] == 0 && ind != KinIndex1 && counter[0] < maxHarmonicKinPerMonomer - 1) {
+			counter[0]++;
+			float dst = myDistance(kt.r[KinIndex1], kt.r[ind]);
+			harmonicKinCount[KinIndex1]++;
+			harmonicKinCount[ind]++;
+			harmonicKin[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = ind;
+			harmonicKin[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = KinIndex1;
+			harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = dst;
+			harmonicKinRadii[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = dst;
+
+		} else if (kt.state[ind] == 1 && ind != KinIndex2 && counter[1] < maxHarmonicKinPerMonomer - 1) {
+			counter[1]++;
+			float dst = myDistance(kt.r[KinIndex2], kt.r[ind]);
+			harmonicKinCount[KinIndex2]++;
+			harmonicKinCount[ind]++;
+			harmonicKin[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = ind;
+			harmonicKin[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = KinIndex2;
+			harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = dst;
+			harmonicKinRadii[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = dst;
+		} else if (counter[0] == maxHarmonicKinPerMonomer - 1 && counter[1] == maxHarmonicKinPerMonomer - 1){
+			printf("%d %d\n", counter[0], counter[1]);
+			break;
+		}
+	}
+
+	// harmonic pairs for kinetochore coms;
+	harmonicKinCount[KinIndex1]++;
+	harmonicKinCount[KinIndex2]++;
+	float dst = myDistance(kt.r[KinIndex1], kt.r[KinIndex2]);
+	harmonicKin[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = KinIndex2;
+	harmonicKin[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = KinIndex1;
+	harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = dst;
+	harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = dst;
+
+		
+	/*for (int i = 0; i < kt.n; i++){
+		printf("%d: ", i);
+		for (int j = 0; j < harmonicKinCount[i]; j++){
+			printf("%f, ", harmonicKinRadii[maxHarmonicKinPerMonomer * i + j]);
+		}
+		printf("\n");
+	}
+*/
+		/// poles allocation and MT generation
+	pol_center = (float3*)malloc(2 * sizeof(float3));
+	pol_center = &mds.r[mds.N - 2];
+
+	mds.r[mds.N - 2].x = -3000; 
+	mds.r[mds.N - 2].y = 0; 
+	mds.r[mds.N - 2].z = 0;
+
+	mds.r[mds.N - 1].x = 3000;
+	mds.r[mds.N - 1].y = 0;
+	mds.r[mds.N - 1].z = 0;
 
 
 	for (j = 0; j < 2; j++){
@@ -152,12 +259,12 @@ int main(){
 		
 			float theta = M_PI*ran2(&rseed);
 			float phi = 2.0*M_PI*ran2(&rseed);
-			pol[j][m].r[0].x = r[j].x + POLE_RADIUS*sin(theta)*cos(phi);
-			pol[j][m].r[0].y = r[j].y + POLE_RADIUS*sin(theta)*sin(phi);
-			pol[j][m].r[0].z = r[j].z + POLE_RADIUS*cos(theta);
-			pol[j][m].r[1].x = r[j].x + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*cos(phi);
-			pol[j][m].r[1].y = r[j].y + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*sin(phi);
-			pol[j][m].r[1].z = r[j].z + (POLE_RADIUS + 2.0*MT_RADIUS)*cos(theta);
+			pol[j][m].r[0].x = pol_center[j].x + POLE_RADIUS*sin(theta)*cos(phi);
+			pol[j][m].r[0].y = pol_center[j].y + POLE_RADIUS*sin(theta)*sin(phi);
+			pol[j][m].r[0].z = pol_center[j].z + POLE_RADIUS*cos(theta);
+			pol[j][m].r[1].x = pol_center[j].x + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*cos(phi);
+			pol[j][m].r[1].y = pol_center[j].y + (POLE_RADIUS + 2.0*MT_RADIUS)*sin(theta)*sin(phi);
+			pol[j][m].r[1].z = pol_center[j].z + (POLE_RADIUS + 2.0*MT_RADIUS)*cos(theta);
 			float mindist = 100.0;
 			int m1;
 			for(m1 = 0; m1 < m; m1++){
@@ -203,7 +310,8 @@ int main(){
 
 		kineticStep();
 		//membraneMechanics(mds.r, mds.f);
-		membraneKinetics();
+		//membraneKinetics();
+		membrane(mds.r, mds.f);
 		computeHarmonic(mds.r, mds.f);
 		computeAngles(mds.r, mds.f);
 		integrateCPU(mds.r, mds.f, dt, mds.N);
@@ -226,7 +334,7 @@ int main(){
 
 }
 
-vector<float3> generateKinetochore(){
+vector<float3> generateKinetochoreSolid(){
 	/*
 	float xc = 2 * ran2(&rseed) * ELLIPSE_A - ELLIPSE_A;
 	float yc = 2 * ran2(&rseed) * ELLIPSE_B - ELLIPSE_B;
@@ -290,6 +398,54 @@ vector<float3> generateKinetochore(){
 	}
 	r.push_back(center);
 
+	float3 c1, c2;
+	int c1_num, c2_num, i;
+	c1_num = c2_num = 0;
+	c1.x = c2.x = c1.y = c2.y = c1.z = c2.z = 0.0;
+
+	for (i = 0; i < r.size() - 1; i++){
+		if (r[i].x < r[r.size() - 1].x){
+			c1_num++;
+			c1.x += r[i].x;
+			c1.y += r[i].y;
+			c1.z += r[i].z;
+
+		} else {
+			c2_num++;
+			c2.x += r[i].x;
+			c2.y += r[i].y;
+			c2.z += r[i].z; //right part
+		}
+
+	}
+
+	c1.x /= c1_num;
+	c1.y /= c1_num;
+	c1.z /= c1_num;
+	c2.x /= c2_num;
+	c2.y /= c2_num;
+	c2.z /= c2_num;
+
+	print3(c1);
+	print3(c2);
+	
+	float mindist1 = 100.0;
+	float mindist2 = 100.0;
+	for (i = 0; i < c1_num; i++){
+		if (myDistance(c1, r[i]) < mindist1){
+			mindist1 = myDistance(c1, r[i]);
+			KinIndex1 = i;
+		}
+	}
+
+	for (i = c1_num; i < c1_num + c2_num; i++){
+		if (myDistance(c2, r[i]) < mindist2){
+			mindist2 = myDistance(c2, r[i]);
+			KinIndex2 = i;
+		}
+	}
+
+
 /*
 	float3 *rarray = (float3*)malloc(r.size() * sizeof(float3));
 	for (int i = 0; i < r.size(); i++){
@@ -298,6 +454,175 @@ vector<float3> generateKinetochore(){
 	}
 
 	//writeXYZ("cylinder.xyz", rarray, r.size(), "w");
+*/
+	return r;
+
+}
+
+vector<float3> generateKinetochoreHollow(){
+	/*
+	float xc = 2 * ran2(&rseed) * ELLIPSE_A - ELLIPSE_A;
+	float yc = 2 * ran2(&rseed) * ELLIPSE_B - ELLIPSE_B;
+	float zc = 2 * ran2(&rseed) * ELLIPSE_C - ELLIPSE_C;
+
+	float3 dir;
+	dir.x = 2 * ran2(&rseed) - 1.0;
+	dir.y = 2 * ran2(&rseed) - 1.0;
+	dir.z = 2 * ran2(&rseed) - 1.0;
+
+	int nh = KIN_HEIGHT / (2 * MT_RADIUS);
+	int nr = KIN_RADIUS / (2 * MT_RADIUS);
+	int n = 0;
+
+*/
+	float xc = 0.0;
+	float yc = 0.0;
+	float zc = 0.0;
+
+	float3 center;
+	center.x = xc;
+	center.y = yc;
+	center.z = zc;
+
+	float xinit_neg = xc - KIN_DIST_0 / 2;
+	float xinit_pos = xc + KIN_DIST_0 / 2;
+	float yinit = yc;// + KIN_DIST_0 / 2;
+	float zinit = zc;// - KIN_HEIGHT / 2;
+
+	printf("%f %f %f\n", xc, yc, zc);
+
+	
+	vector <float3> r;
+	float zbottom =  zinit - KIN_HEIGHT / 2;
+	float zlid =  zinit + KIN_HEIGHT / 2;
+	float xborders[2] = {xinit_neg, xinit_pos};
+
+	int m = M_PI * KIN_RADIUS / (2 * MT_RADIUS);
+	float a = M_PI / m;
+
+	float zfinal;
+
+	for (float z = zbottom; z <= zlid; z += 2 * MT_RADIUS ){
+
+		for (float psi = 0.5 * M_PI ; psi <= 1.5 * M_PI + 0.001 ; psi += a){
+			float3 coord;
+			coord.z = z; 
+			coord.x = xinit_neg + KIN_RADIUS * cos(psi);
+			coord.y = yc + KIN_RADIUS * sin(psi);
+			r.push_back(coord);
+			printf("%f %f %f\n", coord.x, coord.y, coord.z);
+		}
+
+		for (float psi = 0.5 * M_PI; psi >= - 0.5 * M_PI ; psi -= a){
+			float3 coord;
+			coord.z = z; 
+			coord.x = xinit_pos + KIN_RADIUS * cos(psi);
+			coord.y = yc + KIN_RADIUS * sin(psi);
+			r.push_back(coord);
+			printf("%f %f %f\n", coord.x, coord.y, coord.z);
+		}
+
+
+		for (float y = yc - KIN_RADIUS + 2 * MT_RADIUS; y <= yc + KIN_RADIUS - 2 * MT_RADIUS; y += 2 * MT_RADIUS){
+			
+			float3 coord;
+			coord.z = z; 
+			coord.y = y;
+			coord.x = xborders[0];
+			r.push_back(coord);
+			printf("%f %f %f\n", coord.x, coord.y, coord.z);
+			coord.x = xborders[1];
+			r.push_back(coord);
+			printf("%f %f %f\n", coord.x, coord.y, coord.z);
+	
+		}
+
+		zfinal = z;
+
+	}
+	for (float y = yc - KIN_RADIUS + 2 * MT_RADIUS; y < yc + KIN_RADIUS - MT_RADIUS; y += 2 * MT_RADIUS){
+		for (float x =  xinit_pos + 2 * MT_RADIUS; x <= xinit_pos + KIN_RADIUS - MT_RADIUS; x += 2 * MT_RADIUS){
+		
+			if ((x - xinit_pos) * (x - xinit_pos) + (y - yc) * (y - yc) < KIN_RADIUS * KIN_RADIUS){
+				float3 coord;
+				coord.x = x;
+				coord.y = y;
+				coord.z = zbottom; 
+				r.push_back(coord);
+				printf("%f %f %f\n", coord.x, coord.y, coord.z);
+				coord.z = zfinal; 
+				r.push_back(coord);
+				printf("%f %f %f\n", coord.x, coord.y, coord.z);
+			}
+		}
+
+		for (float x =  xinit_neg - 2 * MT_RADIUS; x >= xinit_neg - KIN_RADIUS + MT_RADIUS; x -= 2 * MT_RADIUS){
+		
+			if ((x - xinit_neg) * (x - xinit_neg) + (y - yc) * (y - yc) < KIN_RADIUS * KIN_RADIUS){
+				float3 coord;
+				coord.x = x;
+				coord.y = y;
+				coord.z = zbottom; 
+				r.push_back(coord);
+				printf("%f %f %f\n", coord.x, coord.y, coord.z);
+				coord.z = zfinal; 
+				r.push_back(coord);
+				printf("%f %f %f\n", coord.x, coord.y, coord.z);
+			}
+		}
+	}
+
+	r.push_back(center);
+	// center of mass determination and setting it up
+
+	float3 c1, c2;
+	int c1_num, c2_num, i;
+	c1_num = c2_num = 0;
+	c1.x = c2.x = c1.y = c2.y = c1.z = c2.z = 0.0;
+
+	for (i = 0; i < r.size() - 1; i++){
+		if (r[i].x < r[r.size()-1].x){
+			c1_num++;
+			c1.x += r[i].x;
+			c1.y += r[i].y;
+			c1.z += r[i].z;
+
+		} else {
+			c2_num++;
+			c2.x += r[i].x;
+			c2.y += r[i].y;
+			c2.z += r[i].z; //right part
+		}
+
+	}
+
+	c1.x /= c1_num;
+	c1.y /= c1_num;
+	c1.z /= c1_num;
+	c2.x /= c2_num;
+	c2.y /= c2_num;
+	c2.z /= c2_num;
+
+	print3(c1);
+	print3(c2);
+	
+	r.pop_back();
+	r.push_back(c1);
+	r.push_back(c2);
+	KinIndex1 = r.size() - 2;
+	KinIndex2 = r.size() - 1;
+	r.push_back(center);
+
+	
+
+/*
+	float3 *rarray = (float3*)malloc(r.size() * sizeof(float3));
+	for (int i = 0; i < r.size(); i++){
+		//printf("lol\t%f\t%f\t%f\n", r[i].x, r[i].y, r[i].z);
+		rarray[i] = r[i];
+	}
+
+	writeXYZ("cylinder.xyz", rarray, r.size(), "w");
 */
 	return r;
 
@@ -330,10 +655,77 @@ void membraneKinetics(){
 
 }
 
+void membrane(float3* r, float3* f){
+	int m,j; 
+	float rx, ry, rz, re2;
+	for (j = 0; j < 2; j++){
+		for(m = 0; m < MT_NUM; m++){
+
+			if (pol[j][m].state != MT_STATE_DEPOL){
+				float3 r = pol[j][m].r[pol[j][m].n - 1];
+
+				int i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + pol[j][m].n - 1;
+				/*
+				r.x = pol[j][m].r[pol[j][m].n - 1].x;
+				r.y = pol[j][m].r[pol[j][m].n - 1].y;
+				r.z = pol[j][m].r[pol[j][m].n - 1].z;
+*/
+				re2 = pow(r.x, 2) / pow(ELLIPSE_A, 2) + pow(r.y, 2) / pow(ELLIPSE_B, 2) + pow(r.z, 2) / pow(ELLIPSE_C, 2); 
+				if (re2 > 1.0) {
+
+					float3 normal;
+					normal.x = - 2 * r.x / pow(ELLIPSE_A, 2);
+					normal.y = - 2 * r.y / pow(ELLIPSE_B, 2);
+					normal.z = - 2 * r.z / pow(ELLIPSE_C, 2);
+
+					float cosa = scalar(normal, r) / length(normal) / length(r);
+					if (cosa < cos(M_PI / 6)) {
+						pol[j][m].state = MT_STATE_DEPOL;
+					} else {
+						f[i].x -= MEMBRANE_STIFF * (re2 - 1.0) * r.x / length(r);
+						f[i].y -= MEMBRANE_STIFF * (re2 - 1.0) * r.y / length(r);		
+						f[i].z -= MEMBRANE_STIFF * (re2 - 1.0) * r.z / length(r); 
+					}
+
+
+					
+				}
+			}
+			
+		}
+	}
+	
+
+}
+
+void membraneMechanics(float3* r, float3* f){
+	int m, i, mi, j;
+	float re2, norm;
+	for (j = 0; j < 2; j++){
+		for(m = 0; m < MT_NUM; m++){
+			for(mi = 0; mi < pol[j][m].n-1; mi++){
+
+				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+				float3 ri = r[i];
+				re2 = pow(ri.x, 2) / pow(ELLIPSE_A, 2) + pow(ri.y, 2) / pow(ELLIPSE_B, 2) + pow(ri.z, 2) / pow(ELLIPSE_C, 2);
+				norm = sqrt(pow(ri.x, 2) + pow(ri.y, 2) + pow(ri.z, 2)); 
+
+				if (re2 > 1.0){
+					f[i].x -= MEMBRANE_STIFF * (re2 - 1.0) * ri.x / norm;
+					f[i].y -= MEMBRANE_STIFF * (re2 - 1.0) * ri.y / norm;		
+					f[i].z -= MEMBRANE_STIFF * (re2 - 1.0) * ri.z / norm; 
+				}
+				
+			}
+		}
+	}
+}
+
 void kineticStep(){
 	int m,j;
+	float p;
 	for (j = 0; j < 2; j++){
-		float p = ran2(&rseed);
+		p = ran2(&rseed);
 		for(m = 0; m < MT_NUM; m++){
 			
 			if(pol[j][m].state == MT_STATE_POL){
@@ -383,35 +775,12 @@ void kineticStep(){
 	
 }
 
-void membraneMechanics(float3* r, float3* f){
-	int m, i, mi, j;
-	float re2, norm;
-	for (j = 0; j < 2; j++){
-		for(m = 0; m < MT_NUM; m++){
-			for(mi = 0; mi < pol[j][m].n-1; mi++){
-
-				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
-				float3 ri = r[i];
-				re2 = pow(ri.x, 2) / pow(ELLIPSE_A, 2) + pow(ri.y, 2) / pow(ELLIPSE_B, 2) + pow(ri.z, 2) / pow(ELLIPSE_C, 2);
-				norm = sqrt(pow(ri.x, 2) + pow(ri.y, 2) + pow(ri.z, 2)); 
-
-				if (re2 > 1.0){
-					f[i].x -= MEMBRANE_STIFF * (re2 - 1.0) * ri.x / norm;
-					f[i].y -= MEMBRANE_STIFF * (re2 - 1.0) * ri.y / norm;		
-					f[i].z -= MEMBRANE_STIFF * (re2 - 1.0) * ri.z / norm; 
-				}
-				
-			}
-		}
-	}
-}
 
 void computeHarmonic(float3* r, float3* f){
 	int i, j, m, mi, k;
 
-	float r0 = 2.0*MT_RADIUS;
+	float r0 = 2.0*MT_RADIUS;			/// MT monomers harmonic interactions
 	for (k = 0; k < 2; k++){
-
 		for(m = 0; m < MT_NUM; m++){
 			for(mi = 0; mi < pol[k][m].n-1; mi++){
 				i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
@@ -436,6 +805,48 @@ void computeHarmonic(float3* r, float3* f){
 			}
 		}
 	}
+
+	for (k = 0; k < 2; k++){           /// poles with MTs harmonic interactions
+		for(m = 0; m < MT_NUM; m++){
+			i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH;
+			j = mds.N - 2 + k;
+
+			float3 ri = r[i];
+			float3 rj = r[j];
+			float dx = rj.x - ri.x;
+			float dy = rj.y - ri.y;
+			float dz = rj.z - ri.z;	
+			float dr = sqrtf(dx*dx + dy*dy + dz*dz);
+			float df = K_SPRING * (dr - POLE_RADIUS) / dr;
+		
+			f[i].x += df*dx;
+			f[i].y += df*dy;		
+			f[i].z += df*dz;
+			f[j].x -= df*dx;
+			f[j].y -= df*dy;
+			f[j].z -= df*dz;
+		}
+	}
+
+	/*								/// Inside KT harmonic interactions
+	for (i = 0; i < kt.n; i++){
+		//float3 fi = f[2 * MT_NUM * MAX_MT_LENGTH + i];
+		float3 ri = r[2 * MT_NUM * MAX_MT_LENGTH + i];
+		for (j = 0; j < harmonicKinCount[i]; j++){
+
+			float3 rj = r[2 * MT_NUM * MAX_MT_LENGTH + harmonicKin[i * maxHarmonicKinPerMonomer + j]];
+			float dx = rj.x - ri.x;
+			float dy = rj.y - ri.y;
+			float dz = rj.z - ri.z;	
+			float dr = sqrtf(dx*dx + dy*dy + dz*dz);
+			float df = K_SPRING * (dr - harmonicKinRadii[i * maxHarmonicKinPerMonomer + j]) / dr;
+
+			f[2 * MT_NUM * MAX_MT_LENGTH + i].x += df*dx;
+			f[2 * MT_NUM * MAX_MT_LENGTH + i].y += df*dy;		
+			f[2 * MT_NUM * MAX_MT_LENGTH + i].z += df*dz;
+		}
+	}
+	*/
 	
 }
 
@@ -525,8 +936,11 @@ void integrateCPU(float3* r, float3* f, float dt, int N){
 	int i, m, mi, j;
 
 	float gamma = computeGamma(MT_RADIUS);
+	float var = sqrtf(KB*T*2.0*dt/gamma);
+	float pole_gamma = computeGamma(POLE_RADIUS);
+	float pole_var = sqrtf(KB * T * 2.0 * dt / pole_gamma);
 
-	double var = sqrtf(KB*T*2.0*dt/gamma);
+//dynamics of MTs
 	for (j = 0; j < 2; j++){
 		for(m = 0; m < MT_NUM; m++){
 			for(mi = 1; mi < pol[j][m].n; mi++){
@@ -541,8 +955,30 @@ void integrateCPU(float3* r, float3* f, float dt, int N){
 				f[i].z = 0.0f;
 			}
 		}
+		// POLES MOVEMENTS
+		r[N - 2 + j].x += f[N - 2 + j].x * dt / pole_gamma + var*gasdev(&rseed);
+		r[N - 2 + j].y += f[N - 2 + j].x * dt / pole_gamma + var*gasdev(&rseed);
+		r[N - 2 + j].z += f[N - 2 + j].x * dt / pole_gamma + var*gasdev(&rseed);
+
+		f[N - 2 + j].x = 0.0f;
+		f[N - 2 + j].y = 0.0f;
+		f[N - 2 + j].z = 0.0f;	
 	}
-	
+// dynamics of Kts
+
+	for(i = 0; i < kt.n; i++){
+
+		int index = 2 * MT_NUM * MAX_MT_LENGTH + i;
+		r[index].x += f[index].x * dt / gamma + var * gasdev(&rseed);
+		r[index].y += f[index].y * dt / gamma + var * gasdev(&rseed);
+		r[index].z += f[index].z * dt / gamma + var * gasdev(&rseed);
+
+		f[index].x = 0.0f;
+		f[index].y = 0.0f;
+		f[index].z = 0.0f;
+
+	}
+
 
 }
 
@@ -604,4 +1040,21 @@ int initPSF(){
 
 	sprintf(filename, "output/MT.psf");
 	writePSF(filename, &psf);
+}
+
+float myDistance(float3 ri, float3 rj){
+
+	return sqrt(pow(ri.x - rj.x, 2) + pow(ri.y - rj.y, 2) + pow(ri.z - rj.z, 2));
+}
+
+void print3(float3 r){
+	printf("%f %f %f\n", r.x, r.y, r.z);
+}
+
+float length(float3 r){
+	return sqrt(pow(r.x, 2) + pow(r.y, 2) + pow(r.z, 2));
+}
+
+float scalar(float3 ri, float3 rj){
+	return (ri.x * rj.x + ri.y * rj.y + ri.z * rj.z); 
 }
