@@ -54,6 +54,14 @@ float dt = 100;	//ns
 
 int rseed = 123;
 
+int pairFreq = 10;
+
+float repSigma = 24.0;
+float repEps = 100.0;
+
+float LJsigma = 24.0;
+float LJeps = 100;
+
 //////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -78,26 +86,25 @@ MT* pol[2];
 MDSystem mds;
 KT kt;
 
-int KinIndex1;
-int KinIndex2;
-
 float3* pol_center;
 
-int* LJCount;
-int maxLJPerMonomer;
-int* LJ;
+int kinIndex1;
+int kinIndex2;
 
-int* RepulsiveCount;
-int* Repulsive;
-int maxRepulsivePerMonomer;
+int* LJCount;
+int maxLJPerMonomer = 10;
+int* LJ;
+float LJCutoff = 2 * MT_RADIUS;
+
+int* repulsiveCount;
+int* repulsive;
+int maxRepulsivePerMonomer = 10;
+float repulsiveCutoff = 2 * MT_RADIUS;
 
 int* harmonicKinCount;
 int* harmonicKin;
 float* harmonicKinRadii;
 int maxHarmonicKinPerMonomer = 30;
-
-
-
 //////////////////////////////////////////////////////////////////////////////////////
 
 int writeXYZ(const char* filename, float3* data, int N, const char* modifier);
@@ -105,23 +112,36 @@ int initPSF();
 
 //////////////////////////////////////////////////////////////////////////////////////
 
-int computeGamma(float r);
-
-//////////////////////////////////////////////////////////////////////////////////////
-
 void kineticStep();
 void membraneKinetics();
 void membraneMechanics(float3* r, float3* f);
 void membrane(float3* r, float3* f);
+
 void computeHarmonic(float3* r, float3* f);
 void computeAngles(float3* r, float3* f);
 void integrateCPU(float3* r, float3* f, float dt, int N);
+
+void generateRepulsivePairs(float3* r, float3* f);
+void computeRepulsivePairs(float3* r, float3* f);
+
+void generateLJPairs(float3* r, float3* f);
+void computeLJPairs(float3* r, float3* f);
+
 vector<float3> generateKinetochoreHollow();
 vector<float3> generateKinetochoreSolid();
+
+/////////////////////////////////////////////////////////////////////////////////////
 float myDistance(float3 ri, float3 rj);
 float length(float3 r);
 float scalar(float3 ri, float3 rj);
 void print3(float3 r);
+int computeGamma(float r);
+
+float repForce(float r);
+float repPotential(float r);
+
+float LJForce(float r);
+float LJPotential(float r);
 
 //////////////////////////////////////////////////////////////////////////////////////
 
@@ -153,6 +173,8 @@ int main(){
 	harmonicKinCount = (int*)calloc(kt.n, sizeof(int));
 	harmonicKin = (int*)malloc(kt.n * maxHarmonicKinPerMonomer * sizeof(int));
 	harmonicKinRadii = (float*)malloc(kt.n * maxHarmonicKinPerMonomer * sizeof(float));
+
+
 
 	kt.center.x = kinetochore[kinetochore.size()-1].x;
 	kt.center.y = kinetochore[kinetochore.size()-1].y;
@@ -198,24 +220,24 @@ int main(){
 	int counter[2] = {0,0};
 	for(i = 0; ; i++){
 		int ind = (int)(ran2(&rseed) * kt.n);
-		if (kt.state[ind] == 0 && ind != KinIndex1 && counter[0] < maxHarmonicKinPerMonomer - 1) {
+		if (kt.state[ind] == 0 && ind != kinIndex1 && counter[0] < maxHarmonicKinPerMonomer - 1) {
 			counter[0]++;
-			float dst = myDistance(kt.r[KinIndex1], kt.r[ind]);
-			harmonicKinCount[KinIndex1]++;
+			float dst = myDistance(kt.r[kinIndex1], kt.r[ind]);
+			harmonicKinCount[kinIndex1]++;
 			harmonicKinCount[ind]++;
-			harmonicKin[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = ind;
-			harmonicKin[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = KinIndex1;
-			harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = dst;
+			harmonicKin[maxHarmonicKinPerMonomer * kinIndex1 + harmonicKinCount[kinIndex1] - 1] = ind;
+			harmonicKin[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = kinIndex1;
+			harmonicKinRadii[maxHarmonicKinPerMonomer * kinIndex1 + harmonicKinCount[kinIndex1] - 1] = dst;
 			harmonicKinRadii[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = dst;
 
-		} else if (kt.state[ind] == 1 && ind != KinIndex2 && counter[1] < maxHarmonicKinPerMonomer - 1) {
+		} else if (kt.state[ind] == 1 && ind != kinIndex2 && counter[1] < maxHarmonicKinPerMonomer - 1) {
 			counter[1]++;
-			float dst = myDistance(kt.r[KinIndex2], kt.r[ind]);
-			harmonicKinCount[KinIndex2]++;
+			float dst = myDistance(kt.r[kinIndex2], kt.r[ind]);
+			harmonicKinCount[kinIndex2]++;
 			harmonicKinCount[ind]++;
-			harmonicKin[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = ind;
-			harmonicKin[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = KinIndex2;
-			harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = dst;
+			harmonicKin[maxHarmonicKinPerMonomer * kinIndex2 + harmonicKinCount[kinIndex2] - 1] = ind;
+			harmonicKin[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = kinIndex2;
+			harmonicKinRadii[maxHarmonicKinPerMonomer * kinIndex2 + harmonicKinCount[kinIndex2] - 1] = dst;
 			harmonicKinRadii[maxHarmonicKinPerMonomer * ind + harmonicKinCount[ind] - 1] = dst;
 		} else if (counter[0] == maxHarmonicKinPerMonomer - 1 && counter[1] == maxHarmonicKinPerMonomer - 1){
 			printf("%d %d\n", counter[0], counter[1]);
@@ -224,13 +246,13 @@ int main(){
 	}
 
 	// harmonic pairs for kinetochore coms;
-	harmonicKinCount[KinIndex1]++;
-	harmonicKinCount[KinIndex2]++;
-	float dst = myDistance(kt.r[KinIndex1], kt.r[KinIndex2]);
-	harmonicKin[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = KinIndex2;
-	harmonicKin[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = KinIndex1;
-	harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex1 + harmonicKinCount[KinIndex1] - 1] = dst;
-	harmonicKinRadii[maxHarmonicKinPerMonomer * KinIndex2 + harmonicKinCount[KinIndex2] - 1] = dst;
+	harmonicKinCount[kinIndex1]++;
+	harmonicKinCount[kinIndex2]++;
+	float dst = myDistance(kt.r[kinIndex1], kt.r[kinIndex2]);
+	harmonicKin[maxHarmonicKinPerMonomer * kinIndex1 + harmonicKinCount[kinIndex1] - 1] = kinIndex2;
+	harmonicKin[maxHarmonicKinPerMonomer * kinIndex2 + harmonicKinCount[kinIndex2] - 1] = kinIndex1;
+	harmonicKinRadii[maxHarmonicKinPerMonomer * kinIndex1 + harmonicKinCount[kinIndex1] - 1] = dst;
+	harmonicKinRadii[maxHarmonicKinPerMonomer * kinIndex2 + harmonicKinCount[kinIndex2] - 1] = dst;
 
 		
 	/*for (int i = 0; i < kt.n; i++){
@@ -283,6 +305,9 @@ int main(){
 		
 	}
 
+	repulsiveCount = (int*)calloc(2 * MT_NUM * MAX_MT_LENGTH, sizeof(int));
+	repulsive = (int*)malloc(2 * MT_NUM * MAX_MT_LENGTH * maxRepulsivePerMonomer * sizeof(int));
+
 	initPSF();
 
 	//writeXYZ("MT.xyz", mds.r, mds.N, "w");
@@ -307,6 +332,11 @@ int main(){
 
 	for(step = 0; step < TOTAL_STEPS; step++){
 
+		if (step % pairFreq == 0){
+			generateLJPairs(mds.r, mds.f);
+			generateRepulsivePairs(mds.r, mds.f);
+		}
+
 
 		kineticStep();
 		//membraneMechanics(mds.r, mds.f);
@@ -314,6 +344,9 @@ int main(){
 		membrane(mds.r, mds.f);
 		computeHarmonic(mds.r, mds.f);
 		computeAngles(mds.r, mds.f);
+		computeLJPairs(mds.r, mds.f);
+		computeRepulsivePairs(mds.r, mds.f);
+
 		integrateCPU(mds.r, mds.f, dt, mds.N);
 
 
@@ -434,14 +467,14 @@ vector<float3> generateKinetochoreSolid(){
 	for (i = 0; i < c1_num; i++){
 		if (myDistance(c1, r[i]) < mindist1){
 			mindist1 = myDistance(c1, r[i]);
-			KinIndex1 = i;
+			kinIndex1 = i;
 		}
 	}
 
 	for (i = c1_num; i < c1_num + c2_num; i++){
 		if (myDistance(c2, r[i]) < mindist2){
 			mindist2 = myDistance(c2, r[i]);
-			KinIndex2 = i;
+			kinIndex2 = i;
 		}
 	}
 
@@ -609,8 +642,8 @@ vector<float3> generateKinetochoreHollow(){
 	r.pop_back();
 	r.push_back(c1);
 	r.push_back(c2);
-	KinIndex1 = r.size() - 2;
-	KinIndex2 = r.size() - 1;
+	kinIndex1 = r.size() - 2;
+	kinIndex2 = r.size() - 1;
 	r.push_back(center);
 
 	
@@ -828,7 +861,7 @@ void computeHarmonic(float3* r, float3* f){
 		}
 	}
 
-	/*								/// Inside KT harmonic interactions
+	/*								/// Inside KT (for solid KT) harmonic interactions
 	for (i = 0; i < kt.n; i++){
 		//float3 fi = f[2 * MT_NUM * MAX_MT_LENGTH + i];
 		float3 ri = r[2 * MT_NUM * MAX_MT_LENGTH + i];
@@ -930,6 +963,136 @@ void computeAngles(float3* r, float3* f){
 	}
 	
 }
+
+void generateLJPairs(float3* r, float3* f){
+	int j, m, mi, i, k;
+
+	for (j = 0;  j < 2; j++){
+		for(m = 0; m < MT_NUM; m++){
+			for(mi = 1; mi < pol[j][m].n; mi++){
+				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+				repulsiveCount[i] = 0;
+			}
+		}
+	}
+
+	for (k = 0;  k < 2; k++){
+		for(m = 0; m < MT_NUM; m++){
+			mi = pol[k][m].n - 1;
+			i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+			for (l = 0;  l < kt.n; l++){
+				if(myDistance(r[i], kt.r[l]) < LJCutoff){
+					j = 2 * MT_NUM * MAX_MT_LENGTH + l;
+					LJCount[i]++;
+					LJ[i * maxLJPerMonomer + LJCount[i] - 1] = j;
+				}  
+			}
+		}	
+	} 
+}
+
+void computeLJPairs(float3* r, float3* f){
+	int j, m, mi, i, k;
+
+	for (j = 0;  j < 2; j++){
+		for(m = 0; m < MT_NUM; m++){
+			for(mi = 1; mi < pol[j][m].n; mi++){
+				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+				for(k = 0 ; k < LJCount[i]; k++){
+
+					j = repulsive[i * maxLJPerMonomer + k];
+
+					float3 ri = r[i];
+					float3 rj = r[j];
+
+					float dx = rj.x - ri.x;
+					float dy = rj.y - ri.y;
+					float dz = rj.z - ri.z;
+			
+					float dr = sqrtf(dx*dx + dy*dy + dz*dz);
+				
+					f[i].x += LJForce(dr)  * dx / dr;
+					f[i].y += LJForce(dr)  * dy / dr;	
+					f[i].z += LJForce(dr)  * dz / dr;
+
+					f[j].x -= LJForce(dr)  * dx / dr;
+					f[j].y -= LJForce(dr)  * dy / dr;	
+					f[j].z -= LJForce(dr)  * dz / dr;
+
+				}
+			}
+		}
+	}
+}
+
+
+
+
+void generateRepulsivePairs(float3* r, float3* f){
+	int j1, j2, m1, m2, mi1, mi2, i, j;
+
+	for (j1 = 0;  j1 < 2; j1++){
+		for(m1 = 0; m1 < MT_NUM; m1++){
+			for(mi1 = 1; mi1 < pol[j1][m1].n; mi1++){
+				i = j1 * MT_NUM * MAX_MT_LENGTH + m1 * MAX_MT_LENGTH + mi1;
+				repulsiveCount[i] = 0;
+
+				for (j2 = 0;  j2 < 2; j2++){
+					for(m2 = 0; m2 < MT_NUM; m2++){
+						for(mi2 = 1; mi2 < pol[j2][m2].n; mi2++){
+
+							if (!(j1 == j2 && m1 == m2)){
+								
+								j = j2 * MT_NUM * MAX_MT_LENGTH + m2 * MAX_MT_LENGTH + mi2;
+
+								if (myDistance(r[i], r[j]) < repulsiveCutoff){
+									repulsiveCount[i]++;
+									//repulsiveCount[j]++;
+									repulsive[i + maxRepulsivePerMonomer + repulsiveCount[i] - 1] = j;
+									//repulsive[j + maxRepulsivePerMonomer + repulsiveCount[j] - 1] = i;
+
+								}
+							}
+						}
+					}
+				}
+			}
+		}	
+	} 
+
+}
+
+void computeRepulsivePairs(float3* r, float3* f){
+											/// Compute forces associated with repulsive energy for MTs
+	int k, m, mi, i, j, l;
+
+	for (k = 0; k < 2; k++){
+		for(m = 0; m < MT_NUM; m++){
+			for(mi = 0; mi < pol[k][m].n-1; mi++){
+
+				i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+
+				for ( l = 0; l < repulsiveCount[i]; l++ ){
+					j = repulsive[i * maxRepulsivePerMonomer + l];
+				}
+
+				float3 ri = r[i];
+				float3 rj = r[j];
+
+				float dx = rj.x - ri.x;
+				float dy = rj.y - ri.y;
+				float dz = rj.z - ri.z;
+		
+				float dr = sqrtf(dx*dx + dy*dy + dz*dz);
+			
+				f[i].x += repForce(dr) * dx / dr;
+				f[i].y += repForce(dr) * dy / dr;	
+				f[i].z += repForce(dr) * dz / dr;
+			}
+		}
+	}
+}
+
 
 void integrateCPU(float3* r, float3* f, float dt, int N){
 
@@ -1057,4 +1220,20 @@ float length(float3 r){
 
 float scalar(float3 ri, float3 rj){
 	return (ri.x * rj.x + ri.y * rj.y + ri.z * rj.z); 
+}
+
+float repForce(float r){
+	return 6 * pow(repSigma, 6) * repEps / pow(r, 7);
+}
+
+float repPotential(float r){
+	return repEps * pow(repSigma / r, 6);
+}
+
+float LJPotential(float r){
+	return 0;
+}
+
+float LJForce(float r){
+	return 0;
 }
