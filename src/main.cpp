@@ -59,7 +59,7 @@ int pairFreq = 10;
 float repSigma = 24.0;
 float repEps = 100.0;
 
-float LJsigma = 24.0;
+float LJr = 24.0;
 float LJeps = 100;
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -94,12 +94,12 @@ int kinIndex2;
 int* LJCount;
 int maxLJPerMonomer = 10;
 int* LJ;
-float LJCutoff = 2 * MT_RADIUS;
+float LJCutoff = 4 * MT_RADIUS;
 
 int* repulsiveCount;
 int* repulsive;
 int maxRepulsivePerMonomer = 10;
-float repulsiveCutoff = 2 * MT_RADIUS;
+float repulsiveCutoff = 4 * MT_RADIUS;
 
 int* harmonicKinCount;
 int* harmonicKin;
@@ -308,6 +308,9 @@ int main(){
 	repulsiveCount = (int*)calloc(2 * MT_NUM * MAX_MT_LENGTH, sizeof(int));
 	repulsive = (int*)malloc(2 * MT_NUM * MAX_MT_LENGTH * maxRepulsivePerMonomer * sizeof(int));
 
+	LJCount = (int*)calloc(2 * MT_NUM * MAX_MT_LENGTH, sizeof(int));
+	LJ = (int*)malloc(2 * MT_NUM * MAX_MT_LENGTH * maxLJPerMonomer * sizeof(int));
+
 	initPSF();
 
 	//writeXYZ("MT.xyz", mds.r, mds.N, "w");
@@ -334,7 +337,7 @@ int main(){
 
 		if (step % pairFreq == 0){
 			generateLJPairs(mds.r, mds.f);
-			generateRepulsivePairs(mds.r, mds.f);
+			//generateRepulsivePairs(mds.r, mds.f);
 		}
 
 
@@ -345,7 +348,7 @@ int main(){
 		computeHarmonic(mds.r, mds.f);
 		computeAngles(mds.r, mds.f);
 		computeLJPairs(mds.r, mds.f);
-		computeRepulsivePairs(mds.r, mds.f);
+		//computeRepulsivePairs(mds.r, mds.f);
 
 		integrateCPU(mds.r, mds.f, dt, mds.N);
 
@@ -965,13 +968,13 @@ void computeAngles(float3* r, float3* f){
 }
 
 void generateLJPairs(float3* r, float3* f){
-	int j, m, mi, i, k;
+	int j, m, mi, i, k, l;
 
 	for (j = 0;  j < 2; j++){
 		for(m = 0; m < MT_NUM; m++){
 			for(mi = 1; mi < pol[j][m].n; mi++){
 				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
-				repulsiveCount[i] = 0;
+				LJCount[i] = 0;
 			}
 		}
 	}
@@ -999,6 +1002,10 @@ void computeLJPairs(float3* r, float3* f){
 			for(mi = 1; mi < pol[j][m].n; mi++){
 				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
 				for(k = 0 ; k < LJCount[i]; k++){
+
+					if(LJCount[i] > 0){
+						pol[j][m].state = MT_STATE_DEPOL;
+					}
 
 					j = repulsive[i * maxLJPerMonomer + k];
 
@@ -1099,7 +1106,7 @@ void integrateCPU(float3* r, float3* f, float dt, int N){
 	int i, m, mi, j;
 
 	float gamma = computeGamma(MT_RADIUS);
-	float var = sqrtf(KB*T*2.0*dt/gamma);
+	float var = sqrtf(KB * T * 2.0 * dt / gamma);
 	float pole_gamma = computeGamma(POLE_RADIUS);
 	float pole_var = sqrtf(KB * T * 2.0 * dt / pole_gamma);
 
@@ -1231,9 +1238,9 @@ float repPotential(float r){
 }
 
 float LJPotential(float r){
-	return 0;
+	return LJeps * (pow( LJr, 12) / pow(r, 12) - 2 * pow(LJr, 6) / pow(r,6) ); 
 }
 
 float LJForce(float r){
-	return 0;
+	return 12 * LJeps * ( pow(LJr, 12) / pow(r, 14) - pow(LJr, 6) / pow(r, 8));
 }
