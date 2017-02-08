@@ -26,7 +26,7 @@ using namespace std;
 #define POLE_COUNT		1
 
 #define MT_POL_RATE				0.007//7.e-8 //0.007	for 10 miliseconds	
-#define MT_DEPOL_RATE			0.17//0.17//1.7e-6//0.17		
+#define MT_DEPOL_RATE			0.017//0.17//1.7e-6//0.17		
 #define MT_CATASTROPHE_FREQ 	45e-5//4.5e-10//45e-5	
 #define MT_RESCUE_FREQ			0.0015//1.5e-8//0.0015
 
@@ -52,7 +52,7 @@ float dt = 100;	//ns
 
 //////////////////////////////////////////////////////////////////////////////////////
 
-int rseed = 123;
+int rseed = 1234;
 
 int pairFreq = 10;
 
@@ -336,21 +336,30 @@ int main(){
 	for(step = 0; step < TOTAL_STEPS; step++){
 
 		if (step % pairFreq == 0){
-			generateLJPairs(mds.r, mds.f);
 			//generateRepulsivePairs(mds.r, mds.f);
+			membrane(mds.r, mds.f);
+			printf("membrane calculation proceeded\n");
+
+			generateLJPairs(mds.r, mds.f);
+			printf("LJ pairs generated\n");
 		}
 
 
 		kineticStep();
+		printf("Kinetic step proceeded\n");
 		//membraneMechanics(mds.r, mds.f);
 		//membraneKinetics();
-		membrane(mds.r, mds.f);
+
 		computeHarmonic(mds.r, mds.f);
+		printf("harmonics proceeded\n");
 		computeAngles(mds.r, mds.f);
+		printf("angles proceeded\n");
 		computeLJPairs(mds.r, mds.f);
+		printf("LJ pairs proceeded\n");
 		//computeRepulsivePairs(mds.r, mds.f);
 
 		integrateCPU(mds.r, mds.f, dt, mds.N);
+		printf("Integration proceeded\n");
 
 
 		if(step % DCD_STRIDE == 0){
@@ -972,7 +981,7 @@ void generateLJPairs(float3* r, float3* f){
 
 	for (j = 0;  j < 2; j++){
 		for(m = 0; m < MT_NUM; m++){
-			for(mi = 1; mi < pol[j][m].n; mi++){
+			for(mi = 0; mi < MAX_MT_LENGTH; mi++){
 				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
 				LJCount[i] = 0;
 			}
@@ -981,14 +990,15 @@ void generateLJPairs(float3* r, float3* f){
 
 	for (k = 0;  k < 2; k++){
 		for(m = 0; m < MT_NUM; m++){
-			mi = pol[k][m].n - 1;
-			i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
-			for (l = 0;  l < kt.n; l++){
-				if(myDistance(r[i], kt.r[l]) < LJCutoff){
+			for(mi = 1; mi < pol[k][m].n; mi++){
+				i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+				for (l = 0;  l < kt.n; l++){
 					j = 2 * MT_NUM * MAX_MT_LENGTH + l;
-					LJCount[i]++;
-					LJ[i * maxLJPerMonomer + LJCount[i] - 1] = j;
-				}  
+					if(myDistance(r[i], r[j]) < LJCutoff){
+						LJCount[i]++;
+						LJ[i * maxLJPerMonomer + LJCount[i] - 1] = j;
+					}  
+				}
 			}
 		}	
 	} 
@@ -1001,13 +1011,14 @@ void computeLJPairs(float3* r, float3* f){
 		for(m = 0; m < MT_NUM; m++){
 			for(mi = 1; mi < pol[j][m].n; mi++){
 				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+
+				if(LJCount[i] > 0){
+					pol[j][m].state = MT_STATE_DEPOL;
+				}
+
 				for(k = 0 ; k < LJCount[i]; k++){
 
-					if(LJCount[i] > 0){
-						pol[j][m].state = MT_STATE_DEPOL;
-					}
-
-					j = repulsive[i * maxLJPerMonomer + k];
+					j = LJ[i * maxLJPerMonomer + k];
 
 					float3 ri = r[i];
 					float3 rj = r[j];
