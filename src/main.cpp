@@ -26,9 +26,9 @@ using namespace std;
 #define POLE_COUNT		1
 
 #define MT_POL_RATE				0.007//7.e-8 //0.007	for 10 miliseconds	
-#define MT_DEPOL_RATE			0.017//0.17//1.7e-6//0.17		
+#define MT_DEPOL_RATE			0.0017//0.17//1.7e-6//0.17		
 #define MT_CATASTROPHE_FREQ 	45e-5//4.5e-10//45e-5	
-#define MT_RESCUE_FREQ			0.0015//1.5e-8//0.0015
+#define MT_RESCUE_FREQ			0.015//1.5e-8//0.0015
 
 #define T				300.0	//K
 #define KB 				8.314462e-3	   //kJ/K/mol
@@ -52,7 +52,7 @@ float dt = 100;	//ns
 
 //////////////////////////////////////////////////////////////////////////////////////
 
-int rseed = 1234;
+int rseed = 12345;
 
 int pairFreq = 10;
 
@@ -95,6 +95,7 @@ int* LJCount;
 int maxLJPerMonomer = 10;
 int* LJ;
 float LJCutoff = 4 * MT_RADIUS;
+float LJStopPolDistance = MT_RADIUS;
 
 int* repulsiveCount;
 int* repulsive;
@@ -135,6 +136,7 @@ float myDistance(float3 ri, float3 rj);
 float length(float3 r);
 float scalar(float3 ri, float3 rj);
 void print3(float3 r);
+float3 difference(float3 r1, float3 r2);
 int computeGamma(float r);
 
 float repForce(float r);
@@ -677,6 +679,49 @@ int computeGamma(float r){
 	return 6 * M_PI * VISCOSITY * r;
 }
 
+
+void membrane(float3* r, float3* f){
+	int m,j; 
+	float rx, ry, rz, re2;
+	for (j = 0; j < 2; j++){
+		for(m = 0; m < MT_NUM; m++){
+
+			if (pol[j][m].state != MT_STATE_DEPOL){
+				float3 ri = pol[j][m].r[pol[j][m].n - 1];
+
+				int i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + pol[j][m].n - 1;
+				/*
+				r.x = pol[j][m].r[pol[j][m].n - 1].x;
+				r.y = pol[j][m].r[pol[j][m].n - 1].y;
+				r.z = pol[j][m].r[pol[j][m].n - 1].z;
+*/
+				re2 = pow(ri.x, 2) / pow(ELLIPSE_A, 2) + pow(ri.y, 2) / pow(ELLIPSE_B, 2) + pow(ri.z, 2) / pow(ELLIPSE_C, 2); 
+				if (re2 > 1.0) {
+
+					float3 normal;
+					normal.x = - 2 * ri.x / pow(ELLIPSE_A, 2);
+					normal.y = - 2 * ri.y / pow(ELLIPSE_B, 2);
+					normal.z = - 2 * ri.z / pow(ELLIPSE_C, 2);
+
+					float3 vec = difference(ri, r[i-1]);
+
+					float cosa = scalar(normal, vec) / length(normal) / length(vec);
+					if (cosa < cos(M_PI / 6)) {
+						pol[j][m].state = MT_STATE_DEPOL;
+					} else {
+						f[i].x -= MEMBRANE_STIFF * (re2 - 1.0) * ri.x / length(ri);
+						f[i].y -= MEMBRANE_STIFF * (re2 - 1.0) * ri.y / length(ri);		
+						f[i].z -= MEMBRANE_STIFF * (re2 - 1.0) * ri.z / length(ri); 
+					}
+					
+				}
+			}
+			
+		}
+	}
+	
+}
+
 void membraneKinetics(){
 	int m,j; 
 	float rx, ry, rz, re2;
@@ -691,49 +736,6 @@ void membraneKinetics(){
 				re2 = pow(rx, 2) / pow(ELLIPSE_A, 2) + pow(ry, 2) / pow(ELLIPSE_B, 2) + pow(rz, 2) / pow(ELLIPSE_C, 2); 
 				if (re2 > 1.0) {
 					pol[j][m].state = MT_STATE_DEPOL;
-				}
-			}
-			
-		}
-	}
-	
-
-}
-
-void membrane(float3* r, float3* f){
-	int m,j; 
-	float rx, ry, rz, re2;
-	for (j = 0; j < 2; j++){
-		for(m = 0; m < MT_NUM; m++){
-
-			if (pol[j][m].state != MT_STATE_DEPOL){
-				float3 r = pol[j][m].r[pol[j][m].n - 1];
-
-				int i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + pol[j][m].n - 1;
-				/*
-				r.x = pol[j][m].r[pol[j][m].n - 1].x;
-				r.y = pol[j][m].r[pol[j][m].n - 1].y;
-				r.z = pol[j][m].r[pol[j][m].n - 1].z;
-*/
-				re2 = pow(r.x, 2) / pow(ELLIPSE_A, 2) + pow(r.y, 2) / pow(ELLIPSE_B, 2) + pow(r.z, 2) / pow(ELLIPSE_C, 2); 
-				if (re2 > 1.0) {
-
-					float3 normal;
-					normal.x = - 2 * r.x / pow(ELLIPSE_A, 2);
-					normal.y = - 2 * r.y / pow(ELLIPSE_B, 2);
-					normal.z = - 2 * r.z / pow(ELLIPSE_C, 2);
-
-					float cosa = scalar(normal, r) / length(normal) / length(r);
-					if (cosa < cos(M_PI / 6)) {
-						pol[j][m].state = MT_STATE_DEPOL;
-					} else {
-						f[i].x -= MEMBRANE_STIFF * (re2 - 1.0) * r.x / length(r);
-						f[i].y -= MEMBRANE_STIFF * (re2 - 1.0) * r.y / length(r);		
-						f[i].z -= MEMBRANE_STIFF * (re2 - 1.0) * r.z / length(r); 
-					}
-
-
-					
 				}
 			}
 			
@@ -990,38 +992,47 @@ void generateLJPairs(float3* r, float3* f){
 
 	for (k = 0;  k < 2; k++){
 		for(m = 0; m < MT_NUM; m++){
-			for(mi = 1; mi < pol[k][m].n; mi++){
+			for(mi = 0; mi < pol[k][m].n; mi++){
 				i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
 				for (l = 0;  l < kt.n; l++){
 					j = 2 * MT_NUM * MAX_MT_LENGTH + l;
 					if(myDistance(r[i], r[j]) < LJCutoff){
+						LJ[i * maxLJPerMonomer + LJCount[i]] = j;
 						LJCount[i]++;
-						LJ[i * maxLJPerMonomer + LJCount[i] - 1] = j;
-					}  
+						
+					} 
+
+					if(myDistance(r[i], r[j]) < LJStopPolDistance){
+						pol[j][m].state = MT_STATE_DEPOL;
+					} 
+
 				}
+				if (LJCount[i] > 0){
+					printf("LjCount[%d] = %d\n", i, LJCount[i]);
+				}
+				
 			}
 		}	
 	} 
 }
 
 void computeLJPairs(float3* r, float3* f){
-	int j, m, mi, i, k;
+	int j, m, mi, i, k, l;
 
-	for (j = 0;  j < 2; j++){
+	for (k = 0;  k < 2; k++){
 		for(m = 0; m < MT_NUM; m++){
-			for(mi = 1; mi < pol[j][m].n; mi++){
-				i = j * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
+			for(mi = 1; mi < pol[k][m].n; mi++){
+				i = k * MT_NUM * MAX_MT_LENGTH + m * MAX_MT_LENGTH + mi;
 
-				if(LJCount[i] > 0){
-					pol[j][m].state = MT_STATE_DEPOL;
-				}
+				for(l = 0 ; l < LJCount[i]; l++){
 
-				for(k = 0 ; k < LJCount[i]; k++){
-
-					j = LJ[i * maxLJPerMonomer + k];
+					j = LJ[i * maxLJPerMonomer + l];
+					//printf("%d has partner j=%d\n", i ,j);
 
 					float3 ri = r[i];
+					//printf("ri is got\n");
 					float3 rj = r[j];
+					//printf("rj is got\n");
 
 					float dx = rj.x - ri.x;
 					float dy = rj.y - ri.y;
@@ -1029,13 +1040,13 @@ void computeLJPairs(float3* r, float3* f){
 			
 					float dr = sqrtf(dx*dx + dy*dy + dz*dz);
 				
-					f[i].x += LJForce(dr)  * dx / dr;
-					f[i].y += LJForce(dr)  * dy / dr;	
-					f[i].z += LJForce(dr)  * dz / dr;
+					f[i].x -= LJForce(dr)  * dx / dr;
+					f[i].y -= LJForce(dr)  * dy / dr;	
+					f[i].z -= LJForce(dr)  * dz / dr;
 
-					f[j].x -= LJForce(dr)  * dx / dr;
-					f[j].y -= LJForce(dr)  * dy / dr;	
-					f[j].z -= LJForce(dr)  * dz / dr;
+					f[j].x += LJForce(dr)  * dx / dr;
+					f[j].y += LJForce(dr)  * dy / dr;	
+					f[j].z += LJForce(dr)  * dz / dr;
 
 				}
 			}
@@ -1238,6 +1249,14 @@ float length(float3 r){
 
 float scalar(float3 ri, float3 rj){
 	return (ri.x * rj.x + ri.y * rj.y + ri.z * rj.z); 
+}
+
+float3 difference(float3 r1, float3 r2){
+	float3 answer;
+	answer.x = r1.x - r2.x;
+	answer.y = r1.y - r2.y;
+	answer.z = r1.z - r2.z;
+	return answer;
 }
 
 float repForce(float r){
